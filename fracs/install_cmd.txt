@@ -1,2 +1,0 @@
-pip install opencv-python opencv-contrib-python numpy
-python -m pip install scikit-learn
