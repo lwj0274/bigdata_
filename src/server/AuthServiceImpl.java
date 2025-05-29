@@ -1,36 +1,23 @@
 package server;
 
 import interface_.AuthService;
+import util.DBUtil;
+
 import java.rmi.RemoteException;
 import java.rmi.server.UnicastRemoteObject;
-import java.util.HashSet;
-import java.util.Set;
-import java.util.concurrent.Callable;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
-import java.util.logging.Level;
-import java.util.logging.Logger;
-
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.IOException;
+import java.sql.*;
+import java.util.concurrent.*;
 
 import javax.imageio.ImageIO;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 public class AuthServiceImpl extends UnicastRemoteObject implements AuthService {
     private static final Logger LOGGER = Logger.getLogger(AuthServiceImpl.class.getName());
-
-    private static final Set<String> ALLOWED_EMPLOYEE_IDS = new HashSet<>();
-    static {
-        ALLOWED_EMPLOYEE_IDS.add("202310241");
-        ALLOWED_EMPLOYEE_IDS.add("202212876");
-        ALLOWED_EMPLOYEE_IDS.add("202111629");
-        ALLOWED_EMPLOYEE_IDS.add("202111596");
-        ALLOWED_EMPLOYEE_IDS.add("202111620");
-    }
 
     private final ExecutorService executor = Executors.newFixedThreadPool(4);
 
@@ -40,21 +27,30 @@ public class AuthServiceImpl extends UnicastRemoteObject implements AuthService 
 
     @Override
     public boolean authenticateFace(String employeeId, byte[] faceImage) throws RemoteException {
-        if (!ALLOWED_EMPLOYEE_IDS.contains(employeeId)) {
-            LOGGER.info("인증 실패: 허용되지 않은 사원번호 " + employeeId);
+        // 1. DB 인증
+        try (Connection conn = DBUtil.getConnection()) {
+            String sql = "SELECT emp_id FROM employinfo WHERE emp_id = ?";
+            try (PreparedStatement pstmt = conn.prepareStatement(sql)) {
+                pstmt.setString(1, employeeId);
+                try (ResultSet rs = pstmt.executeQuery()) {
+                    if (!rs.next()) {
+                        LOGGER.info("인증 실패: DB에 없는 사원번호 " + employeeId);
+                        return false;
+                    }
+                }
+            }
+        } catch (SQLException e) {
+            LOGGER.log(Level.SEVERE, "DB 인증 중 오류", e);
             return false;
         }
 
+        // 2. 이미지 저장 및 멀티스레드 처리
         Callable<Boolean> task = () -> {
             try {
-                // byte[] → BufferedImage
                 BufferedImage image = byteArrayToImage(faceImage);
-
-                // output 디렉토리 생성
                 File dir = new File("output");
                 if (!dir.exists()) dir.mkdirs();
 
-                // 이미지 저장
                 File outputFile = new File(dir, employeeId + "_received.jpg");
                 ImageIO.write(image, "jpg", outputFile);
                 LOGGER.info("이미지 저장 완료: " + outputFile.getAbsolutePath());
@@ -85,10 +81,7 @@ public class AuthServiceImpl extends UnicastRemoteObject implements AuthService 
         executor.shutdown();
     }
 
-    // 🔽 유틸 함수 직접 포함 (ImageUtils 필요 없음)
     private BufferedImage byteArrayToImage(byte[] data) throws IOException {
-        ByteArrayInputStream bais = new ByteArrayInputStream(data);
-        return ImageIO.read(bais);
+        return ImageIO.read(new ByteArrayInputStream(data));
     }
 }
-
