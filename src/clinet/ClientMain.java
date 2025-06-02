@@ -3,12 +3,15 @@ package clinet;
 import interface_.AuthService;
 
 import javax.swing.*;
-import javax.swing.filechooser.FileNameExtensionFilter;
 import java.io.File;
 import java.nio.file.Files;
 import java.rmi.registry.LocateRegistry;
 import java.rmi.registry.Registry;
 import java.util.logging.Logger;
+import org.opencv.core.Core;
+import org.opencv.core.Mat;
+import org.opencv.imgcodecs.Imgcodecs;
+import org.opencv.videoio.VideoCapture;
 
 public class ClientMain {
     private static final Logger LOGGER = Logger.getLogger(ClientMain.class.getName());
@@ -16,6 +19,8 @@ public class ClientMain {
     private static final int PORT = 1099;
 
     public static void main(String[] args) {
+        System.out.println("현재 작업 디렉터리: " + System.getProperty("user.dir")); // 작업 디렉터리 출력
+
         try {
             // RMI 레지스트리에서 서비스 조회
             Registry registry = LocateRegistry.getRegistry(HOST, PORT);
@@ -27,41 +32,55 @@ public class ClientMain {
                 return;
             }
 
-            // 파일 선택 다이얼로그
-            JFileChooser fileChooser = new JFileChooser();
-            fileChooser.setDialogTitle("얼굴 이미지 파일 선택");
-
-            // 이미지 파일 필터 추가 (JPG, PNG만 선택 가능)
-            FileNameExtensionFilter imageFilter = new FileNameExtensionFilter(
-                "이미지 파일 (*.jpg, *.jpeg, *.png)", "jpg", "jpeg", "png"
-            );
-            fileChooser.setFileFilter(imageFilter);
-
-            int result = fileChooser.showOpenDialog(null);
-            if (result != JFileChooser.APPROVE_OPTION) {
-                JOptionPane.showMessageDialog(null, "이미지 선택을 취소했습니다.");
+            // 웹캠으로 촬영
+            System.loadLibrary(Core.NATIVE_LIBRARY_NAME);
+            VideoCapture camera = new VideoCapture(0);
+            if (!camera.isOpened()) {
+                JOptionPane.showMessageDialog(null, "웹캠을 열 수 없습니다.");
                 return;
             }
+            Mat frame = new Mat();
 
-            File imageFile = fileChooser.getSelectedFile();
-            byte[] faceImage = Files.readAllBytes(imageFile.toPath());
+            if (camera.read(frame)) {
+                // 바탕화면 경로 예시 (Windows 기준)
+                String outputPath = System.getProperty("user.home") + "/Desktop/captured_face.jpg";
 
-            // 얼굴 인증
-            boolean isAuthenticated = authService.authenticateFace(employeeId, faceImage);
+                Imgcodecs.imwrite(outputPath, frame);
 
-            if (isAuthenticated) {
-                long timestamp = System.currentTimeMillis();
-                boolean isEntry = true; // 추후 입/퇴사 선택 추가 가능
-                authService.logAccess(employeeId, timestamp, isEntry);
-                JOptionPane.showMessageDialog(null, "인증 성공! 출입이 허용되었습니다.");
+                File imageFile = new File(outputPath);
+
+                if (imageFile.exists()) {
+                    System.out.println("파일이 생성됨: " + imageFile.getAbsolutePath());
+                } else {
+                    System.out.println("파일 생성 실패");
+                }
+
+                JOptionPane.showMessageDialog(null, "웹캠 촬영 완료: " + outputPath);
+
+                byte[] faceImage = Files.readAllBytes(imageFile.toPath());
+
+                // 얼굴 인증
+                boolean isAuthenticated = authService.authenticateFace(employeeId, faceImage);
+
+                if (isAuthenticated) {
+                    long timestamp = System.currentTimeMillis();
+                    boolean isEntry = true; // 추후 입/퇴사 선택 추가 가능
+                    authService.logAccess(employeeId, timestamp, isEntry);
+                    JOptionPane.showMessageDialog(null, "인증 성공! 출입이 허용되었습니다.");
+                } else {
+                    JOptionPane.showMessageDialog(null, "인증 실패! 출입이 거부되었습니다.");
+                }
             } else {
-                JOptionPane.showMessageDialog(null, "인증 실패! 출입이 거부되었습니다.");
+                JOptionPane.showMessageDialog(null, "웹캠 촬영에 실패했습니다.");
+                camera.release();
+                return;
             }
-
+            camera.release();
         } catch (Exception e) {
             LOGGER.severe("Client exception: " + e.getMessage());
             JOptionPane.showMessageDialog(null, "오류 발생: " + e.getMessage());
         }
     }
 }
+
 
