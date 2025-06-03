@@ -1,52 +1,59 @@
+import sys
 import cv2
 import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
 
-# 경로
-cascade_path = r"C:\fracs\haarcascade_frontalface_default.xml"
-face_cascade = cv2.CascadeClassifier(cascade_path)
+def load_face_vector(image_path):
+    img = cv2.imread(image_path)
+    if img is None:
+        return None
+    img = cv2.resize(img, (200, 200))
+    return img.flatten().reshape(1, -1)
 
-# 얼굴 DB 불러오기
-db_image = cv2.imread(r"C:\fracs\dataset\user1.jpg")
-db_image = cv2.resize(db_image, (200, 200))
-db_vector = db_image.flatten().reshape(1, -1)  # 1D 벡터화
+def main():
+    if len(sys.argv) != 3:
+        print("Usage: python auth_face.py <input_image_path> <employee_id>")
+        sys.exit(1)
 
-# 카메라 ON
-cap = cv2.VideoCapture(0)
+    input_image_path = r"C:\Users\YONG\git\bigdata_\fracs\captured_face.jpg"
+    employee_id = sys.argv[2]
 
-while True:
-    ret, frame = cap.read()
-    if not ret:
-        break
+    cascade_path = r"C:\Users\YONG\git\bigdata_\fracs\haarcascade_frontalface_default.xml"
+    face_cascade = cv2.CascadeClassifier(cascade_path)
 
-    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    db_image_path = rf"C:\Users\YONG\git\bigdata_\fracs\dataset\{employee_id}.jpg"
+
+    db_vector = load_face_vector(db_image_path)
+    if db_vector is None:
+        print("False")  # DB에 사원 얼굴 없음
+        sys.exit(0)
+
+    input_img = cv2.imread(input_image_path)
+    if input_img is None:
+        print("False")  # 입력 이미지 없음
+        sys.exit(0)
+
+    gray = cv2.cvtColor(input_img, cv2.COLOR_BGR2GRAY)
     faces = face_cascade.detectMultiScale(gray, 1.3, 5)
 
-    result_text = "No Face"
+    if len(faces) == 0:
+        print("False")  # 얼굴 없음
+        sys.exit(0)
 
     for (x, y, w, h) in faces:
-        face_img = frame[y:y + h, x:x + w]
+        face_img = input_img[y:y + h, x:x + w]
         face_img = cv2.resize(face_img, (200, 200))
         input_vector = face_img.flatten().reshape(1, -1)
 
-        # 코사인 유사도 계산
         similarity = cosine_similarity(db_vector, input_vector)[0][0]
+        print(f"Similarity: {similarity:.4f}")
 
-        # 임계값 설정 (0.90 이상이면 승인)
-        if similarity > 0.90:
-            result_text = "Approved (Similarity: {:.2f})".format(similarity)
-            color = (0, 255, 0)
+        if similarity > 0.75:
+            print("True")  # 인증 성공
         else:
-            result_text = "Denied (Similarity: {:.2f})".format(similarity)
-            color = (0, 0, 255)
+            print("False")  # 인증 실패
+        sys.exit(0)
 
-        cv2.rectangle(frame, (x, y), (x + w, y + h), color, 2)
-        cv2.putText(frame, result_text, (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
-        break  # 한 사람만 처리
+if __name__ == "__main__":
+    main()
 
-    cv2.imshow('Authentication', frame)
-    if cv2.waitKey(1) & 0xFF == ord('q'):
-        break
-
-cap.release()
-cv2.destroyAllWindows()
